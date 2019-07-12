@@ -1,3 +1,0 @@
-
-def process(state)
-end

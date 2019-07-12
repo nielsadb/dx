@@ -1,3 +1,5 @@
+testfiles/*
+src/test.rb
 *.gem
 *.rbc
 /.config
