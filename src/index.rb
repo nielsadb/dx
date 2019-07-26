@@ -1,70 +1,100 @@
 
 require 'set'
+require 'values'
+require './util.rb'
 
 class Index
+  Info = Value.new(:name, :depth, :size, :type, :date, :tags)
+  Entry = Value.new(:info, :parent, :children)
+
   def initialize(root)
     @root = root
     @entries = {}
-    @root_entries = Set.new()
   end
-
-  Entry = Struct.new(:name, :size, :type, :date, :tags, :parent, :children, keyword_init: true)
 
   def touch(name:, size:nil, type:nil, date:nil, tags:nil)
     name = File.absolute_path(name.strip, @root)
-    if name == @root then
-      raise ArgumentError.new("must not add the root itself")
-    end
-    entry = @entries[name]
-    if not entry then
+    old_entry = @entries[name]
+    @entries[name] = if old_entry then
+      oldi = old_entry.info
+      old_entry.with(info: oldi.with(
+          size: size || oldi.size,
+          type: type || oldi.type,
+          date: date || oldi.date,
+          tags: merge_sets(oldi.tags, tags)))
+    else
       parent = File.dirname(name)
-      entry = Entry.new(
-        name:     name,
-        size:     size,
-        type:     type,
-        date:     date,
-        tags:     tags || Set.new(),
+      new_entry = Entry.with(
+        info: Info.with(
+          name: name,
+          depth: if parent == @root then 1 else @entries[parent].info.depth + 1 end,
+          size: size,
+          type: type,
+          date: date,
+          tags: (tags || Set.new())),
         children: [],
-        parent:   parent)
-        if parent == @root then
-          @root_entries.add(name)
-        else
-          raise ArgumentError.new("must add parent before child") unless @entries[parent]
-          @entries[parent].children.append(name)
-        end  
-        @entries[name] = entry
-    end
-    entry.size = size || entry.size
-    entry.type = type || entry.type
-    entry.date = date || entry.date
-    if tags then
-      entry.tags.merge(tags)
+        parent: parent)
+      # side-effect: nest the new value in the existing index
+      if new_entry.info.depth > 1 then
+        @entries[new_entry.parent].children.append(name)
+      end
+      new_entry
     end
   end
-
-  def find(from:nil, name:nil, mindepth:1, maxdepth:0, tags:nil, invert:false)
-    visit = ->(n, depth) {
-      return unless (mindepth <= depth) && (depth <= maxdepth || maxdepth == 0)
-      entry = @entries[n]
-      match = (name == nil || name.match(n)) && (tags == nil || tags.subset?(entry.tags))
-      if (match && !invert) or (!match && invert) then
-        yield n, depth, entry.tags, entry.date
-      end
-      entry.children.each do |child|
-        visit.call(child, depth+1)
-      end
-    }
-    from = if from then
-      @entries[from].children
+  
+  def find(from:nil, name:nil, mindepth:1, maxdepth:0, tags:nil, mode: :default)
+    names, depth_offset = if from then
+      [@entries[from].children, @entries[from].info.depth]
     else
-      @root_entries
+      [@entries.select {|_, x| x.info.depth == 1}.keys, 0]
     end
-    from.each do |child|
-      visit.call(child, 1)
-    end
+    recur = ->(n) {
+      raise "n must be a string" unless n.is_a? String
+      entry = @entries[n]
+      raise "entry with name #{n} does not exist" unless entry
+      depth = entry.info.depth - depth_offset
+      return unless (depth <= maxdepth || maxdepth == 0) 
+      if mindepth <= depth then
+        match = case name
+        when nil
+          true
+        when Array
+          name.any? {|re| re.match(n)}
+        when Regexp
+          name.match(n)
+        else
+          raise "wrong argument for 'name'"
+        end &&
+        case tags
+        when nil
+          true
+        when Set
+          tags.subset?(entry.info.tags)
+        else
+          raise "wrong argument for 'tags'"
+        end
+        trigger = case mode
+          when :always
+            true
+          when :default
+            match
+          when :invert
+            !match
+          else
+            raise 'illegal mode'
+          end
+        if trigger then
+          yield entry.info, match
+        end
+      end
+      entry.children.each(&recur)
+    }
+    names.each(&recur)
   end
 
   def rename(name, to:)
+    # haha. what the hell?
+    raise "not implemented"
     rm(name: name)
     touch(name: to,
       size: entry.size,
@@ -80,21 +110,26 @@ class Index
     opa = @entries[entry.parent].parent
     new_name = File.join(opa, File.basename(name))
     entry.name = new_name
-    if opa == @oroot then
-      @root_entries.add(new_name)
-    else
+    if opa != @root then
       @entries[opa].children.append(new_name)
     end
   end
 
   def rmtag(name, tag:)
-    @entries[name].tags.delete(tag)
+    # such boilerplate...
+    # FIXME: use some immutable data structure library
+    old = @entries[name]
+    old.info = Info.new(
+      name: old.name,
+      size: old.size,
+      type: old.type,
+      date: old.date,
+      tags: old.tags.clone.delete(tag).freeze)
   end
 
   def rm(name, recursive:false)
     entry = @entries[name]
     @entries.delete(name)
-    @root_entries.delete(name)
     if @entries[entry.parent] then
       @entries[entry.parent].children.delete(name)
     end
@@ -103,15 +138,6 @@ class Index
         @entries.delete(n)
       end
     end
-  end
-
-  def depth(name)
-    depth = 0
-    while name != @root
-      name = @entries[name].parent
-      depth = depth + 1
-    end
-    depth
   end
 
   def dump(out: $>)
