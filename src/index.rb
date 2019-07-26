@@ -92,18 +92,11 @@ class Index
     names.each(&recur)
   end
 
-  def rename(name, to:)
-    # haha. what the hell?
+  def rename_leaf(name, to:)
     raise "not implemented"
-    rm(name: name)
-    touch(name: to,
-      size: entry.size,
-      type: entry.type,
-      date: entry.date,
-      tags: entry.tags)
   end
 
-  def moveup(name)
+  def move_up(name)
     entry = @entries[name]
     raise "cannot move to unknown location" unless entry.parent
     raise "cannot move a directory up, only files" unless entry.type == :file
@@ -116,15 +109,10 @@ class Index
   end
 
   def rmtag(name, tag:)
-    # such boilerplate...
-    # FIXME: use some immutable data structure library
     old = @entries[name]
-    old.info = Info.new(
-      name: old.name,
-      size: old.size,
-      type: old.type,
-      date: old.date,
-      tags: old.tags.clone.delete(tag).freeze)
+    @entries[name] = old.with(
+      info: old.info.with(
+        old.tags.clone.delete(tag).freeze))
   end
 
   def rm(name, recursive:false)
