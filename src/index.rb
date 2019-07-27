@@ -14,6 +14,7 @@ class Index
 
   def touch(name:, size:nil, type:nil, date:nil, tags:nil)
     name = File.absolute_path(name.strip, @root)
+    return if name == @root
     old_entry = @entries[name]
     @entries[name] = if old_entry then
       oldi = old_entry.info
@@ -24,6 +25,7 @@ class Index
           tags: merge_sets(oldi.tags, tags)))
     else
       parent = File.dirname(name)
+      raise "parent not yet added of #{name}" unless @entries[parent] || parent == @root
       new_entry = Entry.with(
         info: Info.with(
           name: name,
@@ -90,6 +92,19 @@ class Index
       entry.children.each(&recur)
     }
     names.each(&recur)
+  end
+
+  def valid?()
+    @entries.all? do |name, entry|
+      valid = name.is_a?(String) &&
+        entry.is_a?(Entry) &&
+        entry.info.size.is_a?(Numeric) &&
+        entry.info.type.is_a?(Symbol)
+      if not valid then
+        pp [name, entry]
+      end
+      valid
+    end
   end
 
   def rename_leaf(name, to:)
