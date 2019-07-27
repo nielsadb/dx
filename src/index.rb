@@ -44,13 +44,13 @@ class Index
     end
   end
   
-  def find(from:nil, name:nil, mindepth:1, maxdepth:0, tags:nil, mode: :default)
+  def find(from:nil, name:nil, mindepth:1, maxdepth:0, tags:nil, children:nil, mode: :default)
     names, depth_offset = if from then
       [@entries[from].children, @entries[from].info.depth]
     else
       [@entries.select {|_, x| x.info.depth == 1}.keys, 0]
     end
-    recur = ->(n) {
+    recur = ->(n, y) {
       raise "n must be a string" unless n.is_a? String
       entry = @entries[n]
       raise "entry with name #{n} does not exist" unless entry
@@ -74,6 +74,14 @@ class Index
           tags.subset?(entry.info.tags)
         else
           raise "wrong argument for 'tags'"
+        end &&
+        case children
+        when nil
+          true
+        when Integer
+          entry.children.size() == children
+        else
+          raise "wrong argument for 'children'"
         end
         trigger = case mode
           when :always
@@ -86,12 +94,19 @@ class Index
             raise 'illegal mode'
           end
         if trigger then
-          yield entry.info, match
+          # This must not mutate the index!
+          y.yield(entry.info, match)
         end
       end
-      entry.children.each(&recur)
+      entry.children.each do |n|
+        recur.call(n, y)
+      end
     }
-    names.each(&recur)
+    Enumerator.new do |y|
+      names.each do |n|
+        recur.call(n, y)
+      end
+    end
   end
 
   def valid?()
@@ -130,22 +145,18 @@ class Index
         old.tags.clone.delete(tag).freeze))
   end
 
-  def rm(name, recursive:false)
+  def rm(name)
     entry = @entries[name]
     @entries.delete(name)
     if @entries[entry.parent] then
       @entries[entry.parent].children.delete(name)
     end
-    if recursive then
-      find(from:name) do |n|
-        @entries.delete(n)
-      end
-    end
+    entry.children.each {|child| rm(child)}
   end
 
   def dump(out: $>)
-    find do |name, depth, tags, date|
-      out.puts "#{'|   '*(depth-1)}#{name}    @[#{tags.to_a.sort.join(' ')}] (#{date})"
+    find.each do |info|
+      out.puts "#{'|   '*(info.depth-1)}#{info.name}    @[#{info.tags.to_a.sort.join(' ')}] (#{info.date})"
     end
   end
 end
