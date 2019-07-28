@@ -1,12 +1,7 @@
-
-# Expected input on stream is as output by the following command:
-#   find . -exec stat -f "%z %m %N%T" {} + -exec tag {} +
-#
-# The root directory may be included in the results, it will be ignored.
-
-require './index.rb'
 require 'set'
 
+# Expected input on stream is as output by the following command:
+#   find . -exec stat -f "%T %z %m %N" {} + -exec tag {} +
 def parse_stream(stream, idx)
   stream.each do |line|
     stat = line.match /^([\*\/]?) (\d+) (\d+) (.+)$/

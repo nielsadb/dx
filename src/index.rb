@@ -1,8 +1,7 @@
 
 require 'set'
 require 'values'
-require './util.rb'
-
+require_relative 'util.rb'
 class Index
   Info = Value.new(:name, :depth, :size, :type, :date, :tags)
   Entry = Value.new(:info, :parent, :children)
@@ -44,7 +43,8 @@ class Index
     end
   end
   
-  def find(from:nil, name:nil, mindepth:1, maxdepth:0, tags:nil, children:nil, mode: :default)
+  def find(from:nil, name:nil, type:nil, tags:nil, children:nil, mindepth:1, maxdepth:0, mode: :default)
+    raise 'this method returns an enumerator' if block_given?
     names, depth_offset = if from then
       [@entries[from].children, @entries[from].info.depth]
     else
@@ -67,11 +67,21 @@ class Index
         else
           raise "wrong argument for 'name'"
         end &&
+        case type
+        when nil
+          true
+        when Symbol
+          type == entry.info.type
+        else
+          raise "wrong argument for 'type'"
+        end &&
         case tags
         when nil
           true
         when Set
           tags.subset?(entry.info.tags)
+        when String
+          entry.info.tags.include?(tags)
         else
           raise "wrong argument for 'tags'"
         end &&
@@ -95,7 +105,11 @@ class Index
           end
         if trigger then
           # This must not mutate the index!
-          y.yield(entry.info, match)
+          if mode == :always then
+            y.yield(entry.info, match)
+          else
+            y.yield(entry.info)
+          end
         end
       end
       entry.children.each do |n|
@@ -106,19 +120,6 @@ class Index
       names.each do |n|
         recur.call(n, y)
       end
-    end
-  end
-
-  def valid?()
-    @entries.all? do |name, entry|
-      valid = name.is_a?(String) &&
-        entry.is_a?(Entry) &&
-        entry.info.size.is_a?(Numeric) &&
-        entry.info.type.is_a?(Symbol)
-      if not valid then
-        pp [name, entry]
-      end
-      valid
     end
   end
 
